@@ -1,61 +1,39 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 #include <pthread.h>
 #include "../../cetcd/cetcd.h"
 #include "../ctest/ctest.h"
 
-
-int watcher_cb (void *userdata, cetcd_response *resp) {
-	cetcd_response_print(resp);
-	return 1;
-}
-
-void NODE_CMP(cetcd_response_node *node1,cetcd_response_node *node2,int ttl,int mIndex,int cIndex,int key,int value,int dir)
-{
-	if (ttl) ASSERT_EQUAL(node1->ttl, node2->ttl);
-	if (mIndex) ASSERT_EQUAL(node1->modified_index, node2->modified_index);
-	if (cIndex) ASSERT_EQUAL(node1->created_index, node2->created_index);
-	if (key) ASSERT_STR(node1->key, node2->key);
-	if (value) ASSERT_STR(node1->value, node2->value);
-	if (dir) ASSERT_EQUAL(node1->dir, node2->dir);
-}
-
 typedef struct updata_par_t
 {
-	cetcd_client *cli;
 	uint64_t utime;
 	cetcd_string key;
 	cetcd_string value;
 	uint64_t ttl;
 } updata_par;
 
-typedef struct watch_par_t
-{
-	cetcd_client *cli;
-	uint64_t utime;
-	cetcd_string key;
-	uint64_t index;
-} watch_par;
-
-cetcd_response *resp3,*resp4;
 void *updata(void *arg)
 {
-	printf("updata start\n");
+    cetcd_response *resp;
 	updata_par *par = (updata_par*)arg;
 	usleep(par->utime);
-	resp3 = cetcd_set(par->cli, par->key, par->value, par->ttl);
-	cetcd_response_print(resp3);
-	printf("updata end\n");
-}
 
-void *watch(void *arg)
-{
-	printf("watch start\n");
-	watch_par *par = (watch_par*)arg;
-	usleep(par->utime);
-	resp4 = cetcd_watch(par->cli, par->key, par->index);
-	printf("watch end\n");
+    cetcd_client cli1;
+    cetcd_array addrs1;
+	cetcd_array_init(&addrs1, 3);
+	cetcd_array_append(&addrs1, "127.0.0.1:2379");
+	cetcd_array_append(&addrs1, "127.0.0.1:2378");
+	cetcd_array_append(&addrs1, "127.0.0.1:2377");
+	cetcd_client_init(&cli1, &addrs1);
+
+	resp = cetcd_set(&cli1, par->key, par->value, par->ttl);
+    ASSERT_NOT_NULL(resp);
+    cetcd_response_release(resp);
+
+    cetcd_array_destory(&addrs1);
+    cetcd_client_destroy(&cli1);
 }
 
 cetcd_client cli;
@@ -71,462 +49,529 @@ CTEST(TEST,BEGIN)
 	cetcd_client_init(&cli, &addrs);
 }
 
-CTEST_DATA(SETandGET)
+CTEST(set,TEST)
 {
-	cetcd_string key;
-};
+    cetcd_response *resp;
+    cetcd_string key = "/aKey";
+    cetcd_string value = "aValue";
+    uint64_t ttl = 10;
 
-CTEST_SETUP(SETandGET)
-{
-	data->key = "/aNewKey";
-}
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, value);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    ASSERT_NULL(resp->prev_node);
+    cetcd_response_release(resp);
 
-CTEST_TEARDOWN(SETandGET)
-{
-	cetcd_response *resp;
-	resp = cetcd_delete(&cli, data->key);
-	cetcd_response_release(resp);
-}
+    cetcd_string newValue = "aNewValue";
+    resp = cetcd_set(&cli, key, newValue, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_STR(resp->prev_node->value, value);
+    ASSERT_EQUAL(resp->prev_node->ttl, ttl);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, newValue);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    cetcd_response_release(resp);
 
-CTEST2(SETandGET,NORMAL)
-{
-	cetcd_response *resp;
-	cetcd_response *resp2;
-
-	cetcd_string value = "12323";
-	uint64_t ttl = 0;
-	resp = cetcd_set(&cli, data->key, value, ttl);
-	resp2 = cetcd_get(&cli, data->key );
-	
-	NODE_CMP(resp->node, resp2->node, 1, 1, 1, 1, 1, 0);
-
-	//cetcd_response_print(resp);
-
-	cetcd_response_release(resp);
-	cetcd_response_release(resp2);
-}
-
-CTEST(GET,NOTFOUND)
-{
-	cetcd_response *resp;
-	cetcd_string key = "/nothingToGet";
-	resp = cetcd_get(&cli, key);
-	ASSERT_NOT_NULL(resp->err);
-	ASSERT_EQUAL(resp->err->ecode, 100);
-
-	//cetcd_response_print(resp);
-	cetcd_response_release(resp);
-}
-
-CTEST_SKIP(GET_RECURSIVE,NORMAL)
-{
-	cetcd_response *resp;
-	cetcd_response *subKey;
-	cetcd_response_node *subNode;
-	int i;
-	cetcd_string key = "/queue";
-	cetcd_string subkey[3] = {"/queue/4151","/queue/4186","/queue/4187"};
-	int sorted = 1;
-	resp = cetcd_get_recursive(&cli, key, sorted);
-    ASSERT_NOT_NULL(resp);
-    for (i=0; i<3; ++i)	
-	{
-		subKey = cetcd_get(&cli, subkey[i]);
-        ASSERT_NOT_NULL(subKey);
-		subNode = cetcd_array_get(resp->node->nodes, i);
-        ASSERT_NOT_NULL(subNode);
-		NODE_CMP(subKey->node, subNode, 1, 1, 1, 1, 1, 1);
-	}
-	cetcd_response_release(subKey);
-	cetcd_response_release(resp);
-}
-
-CTEST(UPDATE,NORMAL)
-{
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	uint64_t ttl = 0;
-	cetcd_string key = "/somethingToUpdate";
-	cetcd_string value1 = "level 1";
-	cetcd_string value2 = "level 2";
-	resp = cetcd_set(&cli, key, value1, ttl);
-	resp2 = cetcd_set(&cli, key, value2, ttl);
-
-	NODE_CMP(resp->node, resp2->prev_node, 1, 1, 1, 1, 1, 1);
-	NODE_CMP(resp->node, resp2->node, 1, 0, 0, 1, 0, 1);
-	ASSERT_EQUAL(resp->node->modified_index+1,resp2->node->modified_index);
-	ASSERT_EQUAL(resp->node->created_index+1,resp2->node->created_index);
-	ASSERT_STR(resp2->node->value, value2);
-    cetcd_response_release(resp2);
+    resp = cetcd_delete(&cli, key, 1);
     cetcd_response_release(resp);
 }
 
-CTEST(DELETE,NORMAL)
+CTEST(refresh,TEST)
 {
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string key = "/somethingToDelete";
-	cetcd_string value = "donotDeleteMePlease";
-	uint64_t ttl = 0;
-	resp = cetcd_set(&cli, key, value, ttl);
-	resp2 = cetcd_delete(&cli, key);
+    cetcd_response *resp;
+    cetcd_string key = "/foo";
+    cetcd_string value = "bar";
+    uint64_t ttl = 10;
+    
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
 
-	NODE_CMP(resp->node, resp2->prev_node, 0, 1, 1, 1, 1, 1);
-	NODE_CMP(resp->node, resp2->node, 0, 0, 1, 1, 0, 0); 
-	ASSERT_NULL(resp2->node->value);
-	cetcd_response_release(resp2);
+    cetcd_string newValue = "bar2";
+    resp = cetcd_refresh(&cli, key, newValue, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, newValue);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_STR(resp->prev_node->value, value);
+    ASSERT_EQUAL(resp->prev_node->ttl, ttl);
+    cetcd_response_release(resp);
 
-	resp2 = cetcd_get(&cli,key);
-	ASSERT_NOT_NULL(resp2->err);
-	ASSERT_EQUAL(resp2->err->ecode,100);
-
-	//cetcd_response_print(resp);
-	cetcd_response_release(resp);
-	cetcd_response_release(resp2);
-}
-
-CTEST(DELETE,NOTFOUND)
-{
-	cetcd_response *resp;
-	cetcd_string key = "/nothingToDelete";
-	resp = cetcd_delete(&cli, key);
-	ASSERT_NOT_NULL(resp->err);
-	ASSERT_EQUAL(resp->err->ecode, 100);
-	cetcd_response_release(resp);
-}
-
-CTEST_SKIP(MKDIR,NORMAL)
-{
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string key = "/aNewDir";
-	uint64_t ttl = 0;
-	resp = cetcd_mkdir(&cli, key, ttl);
-	resp2 = cetcd_get(&cli, key);
-	NODE_CMP(resp->node, resp2->node, 1, 1, 1, 1, 1, 1);
-	ASSERT_EQUAL(resp->node->dir, 1);
-
-	system("curl 'http://127.0.0.1:2379/v2/keys/aNewDir?dir=true' -XDELETE ");
-	//cetcd_response_print(resp);
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
-}
-
-CTEST(MKDIR,dirIsEXIST)
-{
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string key = "/aExistDir";
-	uint64_t ttl = 0;
-	resp2 = cetcd_get(&cli, key);
-	if (resp2->node == NULL) resp2 = cetcd_mkdir(&cli, key, ttl);
-	ASSERT_NOT_NULL(resp2->node);
-	resp = cetcd_mkdir(&cli, key, ttl);
-	ASSERT_NOT_NULL(resp->err);
-	ASSERT_EQUAL(resp->err->ecode, 105);
-
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
-}
-
-CTEST_SKIP(SETDIR,fileIsExist)
-{
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string key = "/keyToDir";
-	cetcd_string value = "evolution";
-	uint64_t ttl = 0 ;
-
-	resp2 = cetcd_set(&cli, key, value, ttl);
-	ASSERT_NOT_NULL(resp2->node);
-	resp = cetcd_setdir(&cli, key, ttl);
-    ASSERT_NOT_NULL(resp->node);
-	ASSERT_EQUAL(resp->node->dir, 1);
-	system("curl 'http://127.0.0.1:2379/v2/keys/keyToDir?dir=true' -XDELETE ");
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
-}
-
-CTEST_SKIP(SETDIR,dirIsnotExist)
-{
-	cetcd_response *resp;
-	cetcd_string key = "/aNewNewDir";
-	uint64_t ttl = 0;
-
-	resp = cetcd_setdir(&cli, key, ttl);
-	ASSERT_NOT_NULL(resp->node);
-	ASSERT_STR(resp->node->key, key);
-	ASSERT_EQUAL(resp->node->dir, 1);
-	system("curl 'http://127.0.0.1:2379/v2/keys/aNewNewDir?dir=true' -XDELETE ");
-
-	cetcd_response_release(resp);
-}
-	
-CTEST(SETDIR,dirIsExist)
-{
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string key = "/aExistDir";
-	uint64_t ttl = 0;
-	resp2 = cetcd_get(&cli, key);
-	if (resp2->node == NULL) resp2 = cetcd_mkdir(&cli, key, ttl);
-	ASSERT_NOT_NULL(resp2->node);
-	resp = cetcd_setdir(&cli, key, ttl);
+    cetcd_string noExistKey = "/noExistKey";
+    resp = cetcd_refresh(&cli, noExistKey, value, ttl);
     ASSERT_NOT_NULL(resp->err);
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
+    resp = cetcd_delete(&cli, noExistKey, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST_DATA(CAS)
+CTEST(create,TEST)
 {
-	cetcd_string key;
-	cetcd_string value;
-};
+    cetcd_response *resp;
+    cetcd_string key = "/aNewKey";
+    cetcd_string value = "aNewValue";
+    uint64_t ttl = 10;
 
-CTEST_SETUP(CAS)
-{
-	cetcd_response *resp;
-	uint64_t ttl = 0;
-	data->key = "/aKeyToCas";
-	data->value = "one";
-	resp = cetcd_set(&cli, data->key, data->value, ttl);
-	cetcd_response_release(resp);
+    resp = cetcd_create(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, value);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    cetcd_response_release(resp);
+
+    resp = cetcd_create(&cli, key, value, ttl);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST_TEARDOWN(CAS)
+CTEST(create_in_order,TEST)
 {
-	cetcd_response *resp;
-	resp = cetcd_delete(&cli, data->key);
-	cetcd_response_release(resp);
-}
-	
-CTEST2(CAS,byValueNORMAL)
-{
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string newValue = "two";
-	uint64_t ttl = 0;
-	resp2 = cetcd_get(&cli, data->key);
-	resp = cetcd_cmp_and_swap(&cli, data->key, newValue, data->value, ttl);
-	NODE_CMP(resp2->node, resp->prev_node, 1, 1, 1, 1, 1, 1);
-	ASSERT_STR(resp->node->value, newValue);
+    cetcd_response *resp;
+    cetcd_string key = "/queue";
+    cetcd_string value1 = "value1";
+    cetcd_string value2 = "value2";
+    uint64_t ttl = 10;
 
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
-}
+    resp = cetcd_create_in_order(&cli, key, value1, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->value, value1);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    int firstKey = atoi(resp->node->key+strlen(key)+1);
+    cetcd_response_release(resp);
+    resp = cetcd_create_in_order(&cli, key, value2, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->value, value2);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    int secondKey = atoi(resp->node->key+strlen(key)+1);
+    ASSERT_TRUE(firstKey < secondKey);
+    cetcd_response_release(resp);
 
-CTEST2(CAS,byValueNOTFOUND)
-{
-	cetcd_response *resp;
-	cetcd_string prevValue = "two";
-	cetcd_string newValue = "three";
-	uint64_t ttl = 0;
-	resp = cetcd_cmp_and_swap(&cli, data->key, newValue, prevValue, ttl);
-	ASSERT_NOT_NULL(resp->err);
-	ASSERT_EQUAL(resp->err->ecode, 101);
-	ASSERT_STR(resp->err->message, "Compare failed");
-
-	cetcd_response_release(resp);
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST2(CAS,byIndexNORMAL)
+CTEST(setdir,TEST)
 {
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string newValue = "two";
-	resp2 = cetcd_get(&cli, data->key);
-	uint64_t ttl = 0;
-	resp = cetcd_cmp_and_swap_by_index(&cli, data->key, newValue, resp2->node->modified_index, ttl);
-	NODE_CMP(resp2->node, resp->prev_node, 1, 1, 1, 1, 1, 1);
-	ASSERT_STR(resp->node->value, newValue);
+    cetcd_response *resp;
+    cetcd_string dirKey = "/fooDir";
+    uint64_t ttl = 10; 
+    
+    resp = cetcd_setdir(&cli, dirKey, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, dirKey);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    ASSERT_NULL(resp->prev_node);
+    cetcd_response_release(resp);
 
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
-}
-	
-CTEST2(CAS,byIndexNOTFOUND)
-{
-	cetcd_response *resp;
-	cetcd_string newValue = "two";
-	uint64_t ttl = 0;
-	resp = cetcd_cmp_and_swap_by_index(&cli, data->key, newValue, 24, ttl);
-	ASSERT_NOT_NULL(resp->err);
-	ASSERT_EQUAL(resp->err->ecode, 101);
-	ASSERT_STR(resp->err->message, "Compare failed");
+    resp = cetcd_setdir(&cli, dirKey, ttl);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
 
-	cetcd_response_release(resp);
-}
+    cetcd_string key = "/foo";
+    cetcd_string value = "aaaa";
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    
+    resp = cetcd_setdir(&cli, key, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_STR(resp->prev_node->value, value);
+    ASSERT_EQUAL(resp->prev_node->ttl, ttl);
+    cetcd_response_release(resp);
 
-CTEST_DATA(CAD)
-{
-	cetcd_string key; 
-	cetcd_string value; 
-};
-
-CTEST_SETUP(CAD)
-{
-	cetcd_response *resp;
-	data->key = "/aKeyToCad";
-	data->value = "donotDeleteMePlease";
-	uint64_t ttl = 0;
-	resp = cetcd_set(&cli, data->key, data->value, ttl);
-	cetcd_response_release(resp);
+    resp = cetcd_delete(&cli, dirKey, 1);
+    cetcd_response_release(resp);
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST_TEARDOWN(CAD)
+CTEST(refresh_dir,TEST)
 {
-	cetcd_response *resp;
-	resp = cetcd_delete(&cli, data->key);
-	cetcd_response_release(resp);
+    cetcd_response *resp;
+    cetcd_string key = "/aDir";
+    uint64_t ttl = 10; 
+
+    resp = cetcd_mkdir(&cli, key, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_refresh_dir(&cli, key, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_NULL(resp->node->value);
+    ASSERT_TRUE(resp->node->dir);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_TRUE(resp->prev_node->dir);
+    ASSERT_EQUAL(resp->prev_node->ttl, ttl);
+    cetcd_response_release(resp);
+
+    cetcd_string noExistDir = "/noExistDir";
+    resp = cetcd_refresh_dir(&cli, noExistDir, ttl);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST2(CAD,byValueNORMAL)
+CTEST(get,Test)
 {
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	resp2 = cetcd_get(&cli, data->key);
-	resp = cetcd_cmp_and_delete(&cli, data->key, data->value);
-	NODE_CMP(resp2->node, resp->prev_node, 1, 1, 1, 1, 1, 1);
-	ASSERT_NULL(resp->node->value);
-	cetcd_response_release(resp2);
+    cetcd_response *resp;
+    cetcd_string key = "/aKey";
+    cetcd_string value = "aValue";
+    uint64_t ttl = 10;
 
-	resp2 = cetcd_get(&cli, data->key);
-	ASSERT_NOT_NULL(resp2->err);
-	ASSERT_EQUAL(resp2->err->ecode, 100);
-	//cetcd_response_print(resp2);
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_get(&cli, key);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, value);
+    cetcd_response_release(resp);
 
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
+    cetcd_string noExistKey = "/noExistKey";
+    resp = cetcd_get(&cli, noExistKey);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST2(CAD,byValueNOTFOUND)
+CTEST(get_recursive,TEST)
 {
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string prevValue = "ok";
-	resp = cetcd_cmp_and_delete(&cli, data->key, prevValue);
-	ASSERT_NOT_NULL(resp->err);
-	ASSERT_EQUAL(resp->err->ecode, 101);
+    cetcd_response *resp;
+    cetcd_string dirKey = "/fooDir";
+    cetcd_string key0 = "/fooDir/k0";
+    cetcd_string value0 = "v0";
+    cetcd_string key1 = "/fooDir/k1";
+    cetcd_string value1 = "v1";
+    uint64_t ttl = 10;
+    
+    resp = cetcd_mkdir(&cli, dirKey, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_set(&cli, key0, value0, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_set(&cli, key1, value1, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_lsdir(&cli, dirKey, 1, 0);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, dirKey);
+    ASSERT_TRUE(resp->node->dir);
+    cetcd_response_node *subNode;
+    subNode = cetcd_array_get(resp->node->nodes, 0);
+    ASSERT_STR(subNode->key, key0);
+    ASSERT_STR(subNode->value, value0);
+    ASSERT_EQUAL(subNode->ttl, ttl);
+    subNode = cetcd_array_get(resp->node->nodes, 1);
+    ASSERT_STR(subNode->key, key1);
+    ASSERT_STR(subNode->value, value1);
+    ASSERT_EQUAL(subNode->ttl, ttl);
+    cetcd_response_release(resp);
 
-	resp2 = cetcd_get(&cli, data->key);
-	ASSERT_NULL(resp2->err);
+    cetcd_string key2 = "/fooDir/dir/key";
+    cetcd_string value2 = "value2";
+    resp = cetcd_set(&cli, key2, value2, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_lsdir(&cli, dirKey, 1, 1);
+    subNode = cetcd_array_get(
+            ((cetcd_response_node*)cetcd_array_get(resp->node->nodes, 0))->nodes, 0);
+    ASSERT_STR(subNode->key, key2);
+    ASSERT_STR(subNode->value, value2);
+    ASSERT_EQUAL(subNode->ttl, ttl);
+    subNode = cetcd_array_get(resp->node->nodes, 1);
+    ASSERT_STR(subNode->key, key0);
+    ASSERT_STR(subNode->value, value0);
+    ASSERT_EQUAL(subNode->ttl, ttl);
+    subNode = cetcd_array_get(resp->node->nodes, 2);
+    ASSERT_STR(subNode->key, key1);
+    ASSERT_STR(subNode->value, value1);
+    ASSERT_EQUAL(subNode->ttl, ttl);
+    cetcd_response_release(resp);
 
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
+    resp = cetcd_delete(&cli, dirKey, 1);
+    cetcd_response_release(resp);
 }
 
-
-CTEST2(CAD,byIndexNORMAL)
+CTEST(delete,Test)
 {
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	resp2 = cetcd_get(&cli, data->key);
-	resp = cetcd_cmp_and_delete_by_index(&cli, data->key, resp2->node->modified_index);
-	NODE_CMP(resp2->node, resp->prev_node, 1, 1, 1, 1, 1, 1);
-	ASSERT_NULL(resp->node->value);
-	cetcd_response_release(resp2);
+    cetcd_response *resp;
+    cetcd_string key = "/somethingToDelete";
+    cetcd_string value = "aaabbb";
+    uint64_t ttl = 10;
+    
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_delete(&cli, key, 0);
+    ASSERT_NULL(resp->err);
+    ASSERT_NULL(resp->node->value);
+    ASSERT_STR(resp->prev_node->value, value);
+    cetcd_response_release(resp);
 
-	resp2 = cetcd_get(&cli, data->key);
-	ASSERT_NOT_NULL(resp2->err);
-	ASSERT_EQUAL(resp2->err->ecode, 100);
-	//cetcd_response_print(resp2);
+    resp = cetcd_mkdir(&cli, key, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    char *secondKey = "/somethingToDelete/aaa";
+    resp = cetcd_set(&cli, secondKey, value, ttl);
+    cetcd_response_release(resp);
+    resp = cetcd_delete(&cli, key, 1);
+    ASSERT_NULL(resp->err);
+    ASSERT_NULL(resp->node->value);
+    ASSERT_TRUE(resp->prev_node->dir);
+    ASSERT_NULL(resp->prev_node->value);
+    cetcd_response_release(resp);
 
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
+    cetcd_string noExistKey = "/noExistKey";
+    resp = cetcd_delete(&cli, noExistKey, 0);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST2(CAD,byIndexNOTFOUND)
+CTEST(delete_dir,Test)
 {
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	resp = cetcd_cmp_and_delete_by_index(&cli, data->key, 24);
-	ASSERT_NOT_NULL(resp->err);
-	ASSERT_EQUAL(resp->err->ecode, 101);
+    cetcd_response *resp;
+    cetcd_string key = "/somethingToDelete";
+    cetcd_string value = "aaabbb";
+    uint64_t ttl = 10;
+    
+    resp = cetcd_mkdir(&cli, key, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_delete_dir(&cli, key);
+    ASSERT_NULL(resp->err);
+    ASSERT_NULL(resp->node->value);
+    ASSERT_NULL(resp->prev_node->value);
+    ASSERT_TRUE(resp->prev_node->dir);
+    cetcd_response_release(resp);
 
-	resp2 = cetcd_get(&cli, data->key);
-	ASSERT_NULL(resp2->err);
+    resp = cetcd_mkdir(&cli, key, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    char *secondKey = (char*)malloc(40);
+    strcpy(secondKey,key);
+    strcat(secondKey,"/aaa");
+    resp = cetcd_set(&cli, secondKey, value, ttl);
+    free(secondKey);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_delete_dir(&cli, key);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
 
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
+    cetcd_string noExistKey = "/noExistKey";
+    resp = cetcd_delete_dir(&cli, noExistKey);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-CTEST_DATA(WATCH)
+CTEST(cmp_and_swap,TEST)
 {
-	cetcd_string key;
-	cetcd_string value;
-};
+    cetcd_response *resp;
+    cetcd_string key = "/foo";
+    cetcd_string value = "bar";
+    cetcd_string newValue = "bar2";
+    uint64_t ttl = 10;
 
-CTEST_SETUP(WATCH)
-{
-	data->key = "/prisoner";
-	data->value = "inPrison";
-	uint64_t ttl = 0;
-	cetcd_response *resp;
-	resp = cetcd_set(&cli, data->key, data->value, ttl);
-	cetcd_response_release(resp);
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_cmp_and_swap(&cli, key, newValue, value, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, newValue);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_STR(resp->prev_node->value, value);
+    ASSERT_EQUAL(resp->prev_node->ttl, ttl);
+    cetcd_response_release(resp);
+
+    cetcd_string noExistValue = "noExistValue";
+    resp = cetcd_cmp_and_swap(&cli, key, newValue, noExistValue, ttl);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-
-CTEST_TEARDOWN(WATCH)
+CTEST(cmp_and_swap_by_index,TEST)
 {
-	cetcd_response *resp;
-	resp = cetcd_delete(&cli, data->key);
-	cetcd_response_release(resp);
+    cetcd_response *resp;
+    cetcd_string key = "/foo";
+    cetcd_string value = "bar";
+    cetcd_string newValue = "bar2";
+    uint64_t ttl = 10;
+
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    uint64_t index = resp->node->modified_index;
+    cetcd_response_release(resp);
+    resp = cetcd_cmp_and_swap_by_index(&cli, key, newValue, index, ttl);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, newValue);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_STR(resp->prev_node->value, value);
+    ASSERT_EQUAL(resp->prev_node->ttl, ttl);
+    cetcd_response_release(resp);
+
+    uint64_t noExistIndex = 69786876876;
+    resp = cetcd_cmp_and_swap_by_index(&cli, key, newValue, noExistIndex, ttl);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-
-
-CTEST2(WATCH,FORMER)
+CTEST(cmp_and_delete,TEST)
 {
-	cetcd_response *resp;
-	cetcd_response *resp2;
-	cetcd_string newValue = "escaped";
-	uint64_t watch_index;
-	uint64_t ttl = 0;
+    cetcd_response *resp;
+    cetcd_string key = "/foo";
+    cetcd_string value = "bar";
+    uint64_t ttl = 10;
 
-	resp2 = cetcd_get(&cli, data->key);
-	ASSERT_NOT_NULL(resp2->node);
-	watch_index = resp2->node->modified_index+1;
-	cetcd_response_release(resp2);
-	resp2 = cetcd_set(&cli, data->key, newValue, ttl);
-	ASSERT_NOT_NULL(resp2->node);
-    resp = cetcd_watch(&cli, data->key, watch_index);
-	NODE_CMP(resp->node, resp2->node ,1 ,1 ,1 ,1 ,1 ,1);
-	NODE_CMP(resp->prev_node, resp2->prev_node, 1, 1, 1, 1, 1, 1);
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_cmp_and_delete(&cli, key, value);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_NULL(resp->node->value);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_STR(resp->prev_node->value, value);
+    cetcd_response_release(resp);
 
-	cetcd_response_release(resp2);
-	cetcd_response_release(resp);
+    cetcd_string  noExistValue = "noExistValue";
+    resp = cetcd_cmp_and_delete(&cli, key, noExistValue);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
-
-CTEST2_SKIP(WATCH,FUTURE)
+CTEST(cmp_and_delete_by_index,TEST)
 {
-	cetcd_response *resp;
-	cetcd_string key = data->key;
-	resp = cetcd_get(&cli, key);
-	cetcd_response_print(resp);
-	watch_par wp;
-	wp.key = data->key;
-	wp.index = resp->node->created_index+1;
-	wp.utime = 0;
-	wp.cli = &cli;
-	pthread_t watch_id, updata_id;
-	pthread_create(&watch_id, NULL, &watch, &wp);
+    cetcd_response *resp;
+    cetcd_string key = "/foo";
+    cetcd_string value = "bar";
+    uint64_t ttl = 10;
 
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    uint64_t index = resp->node->modified_index;
+    cetcd_response_release(resp);
+    resp = cetcd_cmp_and_delete_by_index(&cli, key, index);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_NULL(resp->node->value);
+    ASSERT_STR(resp->prev_node->key, key);
+    ASSERT_STR(resp->prev_node->value, value);
+    cetcd_response_release(resp);
+
+    uint64_t noExistIndex = 587687687689769;
+    resp = cetcd_cmp_and_delete_by_index(&cli, key, noExistIndex);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
+}
+
+CTEST(watch,TEST) 
+{ 
+	cetcd_response *resp;
+    cetcd_string key = "/somethingToWatch";
+    cetcd_string value = "aaa";
+    cetcd_string newValue = "bbb";
+    uint64_t ttl = 50;
+
+    resp = cetcd_set(&cli, key, value, ttl);
+    ASSERT_NULL(resp->err);
+    uint64_t watchIndex = resp->node->modified_index+1;
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+	pthread_t updata_id;
 	updata_par up;
-	up.utime = 200;
-	up.cli = &cli;
-	up.key = data->key;
-	up.value = "escaped";
-	up.ttl = 0;
+	up.utime = 10000;
+	up.key = key;
+	up.value = newValue;
+	up.ttl = ttl;
 	pthread_create(&updata_id, NULL, &updata, &up);
+    resp = cetcd_watch(&cli, key, watchIndex);
 	pthread_join(updata_id, NULL);
-	pthread_join(watch_id, NULL);
-	cetcd_response_print(resp3);
-	cetcd_response_release(resp);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, key);
+    ASSERT_STR(resp->node->value, newValue);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    cetcd_response_release(resp);
+    
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
 }
 
- 
+CTEST(watch_recursive,TEST) 
+{ 
+	cetcd_response *resp;
+    cetcd_string key = "/foo";
+    cetcd_string subKey = "/foo/foo1";
+
+    cetcd_string value = "aaa";
+    cetcd_string newValue = "bbb";
+    uint64_t ttl = 50;
+
+    resp = cetcd_mkdir(&cli, key, ttl);
+    ASSERT_NULL(resp->err);
+    cetcd_response_release(resp);
+    resp = cetcd_set(&cli, subKey, value, ttl);
+    ASSERT_NULL(resp->err);
+    uint64_t watchIndex = resp->node->modified_index+1;
+    cetcd_response_release(resp);
+	pthread_t updata_id;
+	updata_par up;
+	up.utime = 100000;
+	up.key = subKey;
+	up.value = newValue;
+	up.ttl = ttl;
+	pthread_create(&updata_id, NULL, &updata, &up);
+    resp = cetcd_watch_recursive(&cli, key, watchIndex);
+	pthread_join(updata_id, NULL);
+    ASSERT_NULL(resp->err);
+    ASSERT_STR(resp->node->key, subKey);
+    ASSERT_STR(resp->node->value, newValue);
+    ASSERT_EQUAL(resp->node->ttl, ttl);
+    cetcd_response_release(resp);
+    
+    resp = cetcd_delete(&cli, key, 1);
+    cetcd_response_release(resp);
+}
 CTEST(TEST,END)
 {
     cetcd_array_destory(&addrs);
