@@ -3,7 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
-#include "../../cetcd/cetcd.h"
+#include "../cetcd.h"
 #include "../ctest/ctest.h"
 
 typedef struct updata_par_t
@@ -79,7 +79,7 @@ CTEST(set,TEST)
     cetcd_response_release(resp);
 }
 
-CTEST(refresh,TEST)
+CTEST(update,TEST)
 {
     cetcd_response *resp;
     cetcd_string key = "/foo";
@@ -91,7 +91,7 @@ CTEST(refresh,TEST)
     cetcd_response_release(resp);
 
     cetcd_string newValue = "bar2";
-    resp = cetcd_refresh(&cli, key, newValue, ttl);
+    resp = cetcd_update(&cli, key, newValue, ttl);
     ASSERT_NULL(resp->err);
     ASSERT_STR(resp->node->key, key);
     ASSERT_STR(resp->node->value, newValue);
@@ -102,7 +102,7 @@ CTEST(refresh,TEST)
     cetcd_response_release(resp);
 
     cetcd_string noExistKey = "/noExistKey";
-    resp = cetcd_refresh(&cli, noExistKey, value, ttl);
+    resp = cetcd_update(&cli, noExistKey, value, ttl);
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
@@ -198,7 +198,7 @@ CTEST(setdir,TEST)
     cetcd_response_release(resp);
 }
 
-CTEST(refresh_dir,TEST)
+CTEST(updatedir,TEST)
 {
     cetcd_response *resp;
     cetcd_string key = "/aDir";
@@ -207,7 +207,7 @@ CTEST(refresh_dir,TEST)
     resp = cetcd_mkdir(&cli, key, ttl);
     ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    resp = cetcd_refresh_dir(&cli, key, ttl);
+    resp = cetcd_updatedir(&cli, key, ttl);
     ASSERT_NULL(resp->err);
     ASSERT_STR(resp->node->key, key);
     ASSERT_NULL(resp->node->value);
@@ -219,7 +219,7 @@ CTEST(refresh_dir,TEST)
     cetcd_response_release(resp);
 
     cetcd_string noExistDir = "/noExistDir";
-    resp = cetcd_refresh_dir(&cli, noExistDir, ttl);
+    resp = cetcd_updatedir(&cli, noExistDir, ttl);
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
@@ -349,7 +349,7 @@ CTEST(delete,Test)
     cetcd_response_release(resp);
 }
 
-CTEST(delete_dir,Test)
+CTEST(rmdir,Test)
 {
     cetcd_response *resp;
     cetcd_string key = "/somethingToDelete";
@@ -359,7 +359,7 @@ CTEST(delete_dir,Test)
     resp = cetcd_mkdir(&cli, key, ttl);
     ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    resp = cetcd_delete_dir(&cli, key);
+    resp = cetcd_rmdir(&cli, key);
     ASSERT_NULL(resp->err);
     ASSERT_NULL(resp->node->value);
     ASSERT_NULL(resp->prev_node->value);
@@ -376,12 +376,12 @@ CTEST(delete_dir,Test)
     free(secondKey);
     ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    resp = cetcd_delete_dir(&cli, key);
+    resp = cetcd_rmdir(&cli, key);
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
     cetcd_string noExistKey = "/noExistKey";
-    resp = cetcd_delete_dir(&cli, noExistKey);
+    resp = cetcd_rmdir(&cli, noExistKey);
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
