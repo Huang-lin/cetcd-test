@@ -49,5 +49,9 @@ CMP_AND_DELETE
      1、比较并删除文件（成功）。2、比较并删除，使用错误的prev_value（失败）。
 CMP_AND_DELETE_BY_INDEX
      1、比较并删除文件（成功）。2、比较并删除，使用错误的prev_index（失败）。
+WATCH
+     1、监察文件（成功）。
+WATCH_RECURSIVE
+     1、监察文件夹（成功）。
 
 ```
