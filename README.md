@@ -9,7 +9,7 @@
 #### 2.1 依赖
 ```
 cetcd的安装见cetcd目录中的README.md
-ctest测试框架已附在tests目录中
+ctest测试框架已附在tests目录中，使用方法见该目录中的README.md
 ```
 #### 2.2 安装及运行
 ```
