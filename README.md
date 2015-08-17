@@ -9,7 +9,7 @@
 #### 2.1 依赖
 ```
 cetcd的安装见cetcd目录中的README.md
-ctest测试框架已附在tests目录中
+ctest测试框架已附在tests目录中，使用方法见该目录中的README.md
 ```
 #### 2.2 安装及运行
 ```
@@ -49,5 +49,9 @@ CMP_AND_DELETE
      1、比较并删除文件（成功）。2、比较并删除，使用错误的prev_value（失败）。
 CMP_AND_DELETE_BY_INDEX
      1、比较并删除文件（成功）。2、比较并删除，使用错误的prev_index（失败）。
+WATCH
+     1、监察文件（成功）。
+WATCH_RECURSIVE
+     1、监察文件夹（成功）。
 
 ```
