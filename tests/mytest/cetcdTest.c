@@ -75,7 +75,7 @@ CTEST(set,TEST)
     ASSERT_EQUAL(resp->node->ttl, ttl);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -106,9 +106,9 @@ CTEST(update,TEST)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
-    resp = cetcd_delete(&cli, noExistKey, 1);
+    resp = cetcd_delete(&cli, noExistKey);
     cetcd_response_release(resp);
 }
 
@@ -130,7 +130,7 @@ CTEST(create,TEST)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -156,7 +156,7 @@ CTEST(create_in_order,TEST)
     ASSERT_TRUE(firstKey < secondKey);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_rmdir(&cli, key, 1);
     cetcd_response_release(resp);
 }
 
@@ -192,9 +192,9 @@ CTEST(setdir,TEST)
     ASSERT_EQUAL(resp->prev_node->ttl, ttl);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, dirKey, 1);
+    resp = cetcd_rmdir(&cli, dirKey, 1);
     cetcd_response_release(resp);
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_rmdir(&cli, key, 1);
     cetcd_response_release(resp);
 }
 
@@ -223,7 +223,7 @@ CTEST(updatedir,TEST)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_rmdir(&cli, key, 1);
     cetcd_response_release(resp);
 }
 
@@ -248,7 +248,7 @@ CTEST(get,Test)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -307,7 +307,7 @@ CTEST(get_recursive,TEST)
     ASSERT_EQUAL(subNode->ttl, ttl);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, dirKey, 1);
+    resp = cetcd_rmdir(&cli, dirKey, 1);
     cetcd_response_release(resp);
 }
 
@@ -321,7 +321,7 @@ CTEST(delete,Test)
     resp = cetcd_set(&cli, key, value, ttl);
     ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    resp = cetcd_delete(&cli, key, 0);
+    resp = cetcd_delete(&cli, key);
     ASSERT_NULL(resp->err);
     ASSERT_NULL(resp->node->value);
     ASSERT_STR(resp->prev_node->value, value);
@@ -330,22 +330,20 @@ CTEST(delete,Test)
     resp = cetcd_mkdir(&cli, key, ttl);
     ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    char *secondKey = "/somethingToDelete/aaa";
+    cetcd_string secondKey = "/somethingToDelete/aaa";
     resp = cetcd_set(&cli, secondKey, value, ttl);
-    cetcd_response_release(resp);
-    resp = cetcd_delete(&cli, key, 1);
     ASSERT_NULL(resp->err);
-    ASSERT_NULL(resp->node->value);
-    ASSERT_TRUE(resp->prev_node->dir);
-    ASSERT_NULL(resp->prev_node->value);
     cetcd_response_release(resp);
-
-    cetcd_string noExistKey = "/noExistKey";
-    resp = cetcd_delete(&cli, noExistKey, 0);
+    resp = cetcd_delete(&cli, key);
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    cetcd_string noExistKey = "/noExistKey";
+    resp = cetcd_delete(&cli, noExistKey);
+    ASSERT_NOT_NULL(resp->err);
+    cetcd_response_release(resp);
+
+    resp = cetcd_rmdir(&cli, key, 1);
     cetcd_response_release(resp);
 }
 
@@ -359,33 +357,32 @@ CTEST(rmdir,Test)
     resp = cetcd_mkdir(&cli, key, ttl);
     ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    resp = cetcd_rmdir(&cli, key);
+    resp = cetcd_rmdir(&cli, key, 1);
     ASSERT_NULL(resp->err);
     ASSERT_NULL(resp->node->value);
     ASSERT_NULL(resp->prev_node->value);
     ASSERT_TRUE(resp->prev_node->dir);
     cetcd_response_release(resp);
-
+    
     resp = cetcd_mkdir(&cli, key, ttl);
     ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    char *secondKey = (char*)malloc(40);
-    strcpy(secondKey,key);
-    strcat(secondKey,"/aaa");
+    cetcd_string secondKey = "/somethingToDelete/aaa";
     resp = cetcd_set(&cli, secondKey, value, ttl);
-    free(secondKey);
-    ASSERT_NULL(resp->err);
     cetcd_response_release(resp);
-    resp = cetcd_rmdir(&cli, key);
-    ASSERT_NOT_NULL(resp->err);
+    resp = cetcd_rmdir(&cli, key, 1);
+    ASSERT_NULL(resp->err);
+    ASSERT_NULL(resp->node->value);
+    ASSERT_TRUE(resp->prev_node->dir);
+    ASSERT_NULL(resp->prev_node->value);
     cetcd_response_release(resp);
 
     cetcd_string noExistKey = "/noExistKey";
-    resp = cetcd_rmdir(&cli, noExistKey);
+    resp = cetcd_rmdir(&cli, noExistKey, 0);
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_rmdir(&cli, key, 1);
     cetcd_response_release(resp);
 }
 
@@ -415,7 +412,7 @@ CTEST(cmp_and_swap,TEST)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -446,7 +443,7 @@ CTEST(cmp_and_swap_by_index,TEST)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -473,7 +470,7 @@ CTEST(cmp_and_delete,TEST)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -501,7 +498,7 @@ CTEST(cmp_and_delete_by_index,TEST)
     ASSERT_NOT_NULL(resp->err);
     cetcd_response_release(resp);
 
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -533,7 +530,7 @@ CTEST(watch,TEST)
     ASSERT_EQUAL(resp->node->ttl, ttl);
     cetcd_response_release(resp);
     
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_delete(&cli, key);
     cetcd_response_release(resp);
 }
 
@@ -569,7 +566,7 @@ CTEST(watch_recursive,TEST)
     ASSERT_EQUAL(resp->node->ttl, ttl);
     cetcd_response_release(resp);
     
-    resp = cetcd_delete(&cli, key, 1);
+    resp = cetcd_rmdir(&cli, key, 1);
     cetcd_response_release(resp);
 }
 CTEST(TEST,END)
